@@ -3,23 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polyview</title>
-    <style>
-        body {
-            background-color: #3b82f6; /* Improved blue color */
-            font-family: Arial, sans-serif;
-        }
-    </style>
+    <link rel="stylesheet" href="styles/dark-theme.css">
+    <title>POLYVIEW v2</title>
 </head>
 <body>
-    <h1>Welcome to Polyview</h1>
-    <p>We have made several improvements:</p>
-    <ul>
-        <li>Fixed market loading with better API error handling.</li>
-        <li>Enhanced username resolution with multiple endpoints.</li>
-        <li>All-time volume statistics.</li>
-        <li>Improved loading animations with better spinner.</li>
-        <li>Comprehensive error handling.</li>
-    </ul>
+    <header>
+        <h1>Welcome to POLYVIEW v2</h1>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="trader-search.html">Trader Search</a></li>
+            <li><a href="markets.html">Markets</a></li>
+            <li><a href="leaderboard.html">Leaderboard</a></li>
+        </ul>
+    </nav>
+    <main>
+        <section id="trader-search">
+            <h2>Trader Search</h2>
+            <input type="text" id="search-input" placeholder="Search Traders..."></input>
+            <button id="search-button">Search</button>
+        </section>
+        <section id="markets">
+            <h2>Markets</h2>
+            <div id="markets-data"></div>
+        </section>
+        <section id="leaderboard">
+            <h2>Leaderboard</h2>
+            <div id="leaderboard-data"></div>
+        </section>
+    </main>
+    <script src="scripts/api.js"></script>
+    <script src="scripts/trader-search.js"></script>
+    <script src="scripts/markets.js"></script>
+    <script src="scripts/leaderboard.js"></script>
 </body>
 </html>
