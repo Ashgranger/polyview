@@ -481,8 +481,9 @@ var GAMMA  = 'https://gamma-api.polymarket.com';
 var DATA   = 'https://data-api.polymarket.com';
 var DATAv1 = 'https://data-api.polymarket.com/v1';
 var CLOB   = 'https://clob.polymarket.com';
-/* CORS proxy as last resort */
+/* CORS proxies as fallback */
 var PROXY  = 'https://api.allorigins.win/raw?url=';
+var PROXY2 = 'https://corsproxy.io/?';
 
 /* ═════ STATE ═════ */
 var _allEvents=[], _evData=[], _actData=[], _lpData=[], _scRows=[];
@@ -522,14 +523,24 @@ function timeSince(ms){
   return Math.floor(s/3600)+'h ago';
 }
 
-/* Core fetch with proxy fallback */
+/* Timeout-safe fetch (AbortController instead of AbortSignal.timeout for mobile compat) */
+function fjRaw(url, ms){
+  ms=ms||10000;
+  var ctrl=new AbortController();
+  var tid=setTimeout(function(){ ctrl.abort(); }, ms);
+  return fetch(url, {signal:ctrl.signal})
+    .then(function(r){ clearTimeout(tid); if(!r.ok)throw new Error('HTTP '+r.status); return r.json(); })
+    .catch(function(e){ clearTimeout(tid); throw e; });
+}
+/* Core fetch with dual-proxy fallback */
 function fj(url){
-  return fetch(url, {signal: AbortSignal.timeout(8000)})
-    .then(function(r){ if(!r.ok)throw new Error('HTTP '+r.status); return r.json(); })
+  return fjRaw(url, 10000)
     .catch(function(e){
-      /* Try CORS proxy as last resort */
-      return fetch(PROXY+encodeURIComponent(url), {signal: AbortSignal.timeout(12000)})
-        .then(function(r){ if(!r.ok)throw e; return r.json(); });
+      return fjRaw(PROXY+encodeURIComponent(url), 14000)
+        .catch(function(){
+          return fjRaw(PROXY2+encodeURIComponent(url), 14000)
+            .catch(function(){ throw e; });
+        });
     });
 }
 
@@ -598,21 +609,24 @@ function gsClick(idx){
 
 /* ═════ EVENTS LOADER ═════ */
 function fetchEvents(cb){
-  /* Try volume_24hr sort first, fallback to volume */
-  fj(GAMMA+'/events?active=true&limit=100&order=volume_24hr&ascending=false')
-    .then(function(d){
-      var list=Array.isArray(d)?d:(d.events||d.data||[]);
-      if(list.length>0){ _allEvents=list; if(cb)cb(list,null); return; }
-      throw new Error('Empty response');
-    })
-    .catch(function(){
-      fj(GAMMA+'/events?active=true&limit=100&order=volume&ascending=false')
-        .then(function(d){
-          var list=Array.isArray(d)?d:(d.events||d.data||[]);
-          _allEvents=list; if(cb)cb(list,null);
-        })
-        .catch(function(err){ if(cb)cb([],err); });
-    });
+  /* Try multiple endpoint variants — volume_24hr is not always a valid sort param */
+  var urls=[
+    GAMMA+'/events?active=true&closed=false&limit=100&order=volume&ascending=false',
+    GAMMA+'/events?active=true&limit=100&order=volume&ascending=false',
+    GAMMA+'/events?limit=100&order=volume&ascending=false',
+    GAMMA+'/events?limit=100'
+  ];
+  function tryUrl(i){
+    if(i>=urls.length){ if(cb)cb([],new Error('All endpoints failed')); return; }
+    fj(urls[i])
+      .then(function(d){
+        var list=Array.isArray(d)?d:(d.events||d.data||[]);
+        if(list.length>0){ _allEvents=list; if(cb)cb(list,null); return; }
+        tryUrl(i+1);
+      })
+      .catch(function(){ tryUrl(i+1); });
+  }
+  tryUrl(0);
 }
 
 /* ═════ TRADER ═════ */
