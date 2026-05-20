@@ -283,7 +283,7 @@ tr:hover td{background:rgba(79,142,247,.025)}
 </div>
 
 <!-- TRADER PAGE -->
-<div class="page active" id="page-trader">
+<div class="page" id="page-trader">
   <div class="srow" style="margin-top:13px">
     <div class="sbox">
       <div class="si">⟡</div>
@@ -317,7 +317,7 @@ tr:hover td{background:rgba(79,142,247,.025)}
 </div>
 
 <!-- MARKETS PAGE -->
-<div class="page" id="page-markets">
+<div class="page active" id="page-markets">
   <div style="display:flex;align-items:center;justify-content:space-between;margin:13px 0 10px">
     <div>
       <div style="font-size:16px;font-weight:800;margin-bottom:1px">📊 Markets</div>
@@ -468,8 +468,8 @@ tr:hover td{background:rgba(79,142,247,.025)}
 
 <!-- BOTTOM NAV -->
 <nav class="bnav">
-  <button class="bt on"  id="bn-trader">    <span class="ni">👤</span><span>Trader</span></button>
-  <button class="bt"     id="bn-markets">   <span class="ni">📊</span><span>Markets</span></button>
+  <button class="bt"  id="bn-trader">    <span class="ni">👤</span><span>Trader</span></button>
+  <button class="bt on"     id="bn-markets">   <span class="ni">📊</span><span>Markets</span></button>
   <button class="bt"     id="bn-scalping">  <span class="ni">⚡</span><span>Scalp</span></button>
   <button class="bt"     id="bn-lp">        <span class="ni">💰</span><span>LP</span></button>
   <button class="bt"     id="bn-leaderboard"><span class="ni">🏆</span><span>Leaders</span></button>
@@ -481,6 +481,7 @@ var GAMMA  = 'https://gamma-api.polymarket.com';
 var DATA   = 'https://data-api.polymarket.com';
 var DATAv1 = 'https://data-api.polymarket.com/v1';
 var CLOB   = 'https://clob.polymarket.com';
+var _eventsCache=null,_eventsCacheTs=0,_obCache={},_currentEventForModal=null;
 /* CORS proxies as fallback */
 var PROXY  = 'https://api.allorigins.win/raw?url=';
 var PROXY2 = 'https://corsproxy.io/?';
@@ -489,7 +490,6 @@ var PROXY2 = 'https://corsproxy.io/?';
 var _allEvents=[], _evData=[], _actData=[], _lpData=[], _scRows=[];
 var _lbWindow='all', _mktsLoaded=false, _lbLoaded=false, _scFilter='all';
 var _gsItems=[];
-var _bookCache={};
 
 /* ═════ UTILS ═════ */
 function ge(id){ return document.getElementById(id); }
@@ -544,11 +544,6 @@ function fj(url){
         });
     });
 }
-function getBook(tokenId){
-  if(!tokenId)return Promise.resolve(null);
-  if(_bookCache[tokenId])return Promise.resolve(_bookCache[tokenId]);
-  return fj(CLOB+'/book?token_id='+tokenId).then(function(ob){ _bookCache[tokenId]=ob; return ob; }).catch(function(){ return null; });
-}
 
 /* ═════ NAVIGATION ═════ */
 function goPage(name){
@@ -570,31 +565,53 @@ function openSearch(){
 function closeSearch(){ ge('sov').classList.remove('on'); }
 function renderSearch(q){
   var el=ge('gsRes');
-  if(!_allEvents.length){ el.innerHTML='<div class="sempty">⏳ Loading market index…</div>'; return; }
+  if(!_allEvents.length){
+    el.innerHTML='<div class="sempty">⏳ Loading market index…</div>';
+    return;
+  }
   if(!q){ el.innerHTML='<div class="sempty">Search across '+_allEvents.length+' active markets</div>'; setTxt('gsCnt',''); return; }
   var qL=q.toLowerCase();
-  var marketRes=_allEvents.filter(function(e){ return (e.title||'').toLowerCase().indexOf(qL)>-1||(e.category||'').toLowerCase().indexOf(qL)>-1||(e.slug||'').toLowerCase().indexOf(qL)>-1; }).slice(0,12);
-  var looksLikeUser=!/^0x[0-9a-fA-F]{40}$/.test(q)&&q.length>=2;
-  var traderPromise=looksLikeUser?fj(DATAv1+'/leaderboard?userName='+encodeURIComponent(q)).then(function(d){return Array.isArray(d)?d:[];}).catch(function(){return [];}):Promise.resolve([]);
-  traderPromise.then(function(users){
-    _gsItems=marketRes;
-    setTxt('gsCnt',(users.length+marketRes.length)+' results');
-    if(!users.length&&!marketRes.length){ el.innerHTML='<div class="sempty">No traders or markets found for "'+esc(q)+'"</div>'; return; }
-    var userHtml=users.slice(0,8).map(function(u){ var addr=u.proxyWallet||''; var nm=u.userName||u.name||addr; return '<div class="sitem" onclick="gsTrader(\''+esc(addr)+'\')"><div class="sitem-ico">👤</div><div class="sitem-body"><div class="sitem-title">'+esc(nm)+'</div><div class="sitem-meta"><span class="badge bg">Trader</span>'+(u.rank?'<span class="badge bbl">Rank #'+esc(String(u.rank))+'</span>':'')+(addr?'<span class="badge bg mono">'+esc(short(addr))+'</span>':'')+'</div></div></div>'; }).join('');
-    var marketHtml=marketRes.map(function(e,i){ var mkts=e.markets||[]; var m0=mkts[0]||{}; var price=parseFloat(m0.lastTradePrice||0); var vol24=parseFloat(e.volume24hr||0); var isM=mkts.length>1; var cat=e.category||''; var ico=cat.match(/sport|soccer|nba|football/i)?'⚽':cat.match(/crypto|bitcoin|btc/i)?'₿':cat.match(/politic|election/i)?'🗳':'📊'; var pc=price>=.5?'var(--green)':'var(--red)'; return '<div class="sitem" onclick="gsClick('+i+')"><div class="sitem-ico">'+ico+'</div><div class="sitem-body"><div class="sitem-title">'+esc(trunc(e.title||'Unknown',54))+'</div><div class="sitem-meta">'+(price&&!isM?'<span class="badge bg" style="color:'+pc+';font-family:JetBrains Mono,monospace">'+(price*100).toFixed(0)+'%</span>':'')+(vol24?'<span class="badge bg">24h '+fm(vol24)+'</span>':'')+(cat?'<span class="badge bbl">'+esc(cat)+'</span>':'')+(isM?'<span class="badge bg">'+mkts.length+' options</span>':'')+'</div></div></div>'; }).join('');
-    el.innerHTML=userHtml+marketHtml;
-  });
+  var res=_allEvents.filter(function(e){
+    return (e.title||'').toLowerCase().indexOf(qL)>-1||
+           (e.category||'').toLowerCase().indexOf(qL)>-1||
+           (e.slug||'').toLowerCase().indexOf(qL)>-1;
+  }).slice(0,15);
+  _gsItems=res;
+  setTxt('gsCnt',res.length+' results');
+  if(!res.length){ el.innerHTML='<div class="sempty">No markets found for "'+esc(q)+'"</div>'; return; }
+  el.innerHTML=res.map(function(e,i){
+    var mkts=e.markets||[]; var m0=mkts[0]||{};
+    var price=parseFloat(m0.lastTradePrice||0);
+    var vol24=parseFloat(e.volume24hr||0);
+    var isM=mkts.length>1;
+    var cat=e.category||'';
+    var ico=cat.match(/sport|soccer|nba|football/i)?'⚽':cat.match(/crypto|bitcoin|btc/i)?'₿':cat.match(/politic|election/i)?'🗳':'📊';
+    var pc=price>=.5?'var(--green)':'var(--red)';
+    return '<div class="sitem" onclick="gsClick('+i+')">'+
+      '<div class="sitem-ico">'+ico+'</div>'+
+      '<div class="sitem-body">'+
+        '<div class="sitem-title">'+esc(trunc(e.title||'Unknown',54))+'</div>'+
+        '<div class="sitem-meta">'+
+          (price&&!isM?'<span class="badge bg" style="color:'+pc+';font-family:JetBrains Mono,monospace">'+(price*100).toFixed(0)+'%</span>':'')+ 
+          (vol24?'<span class="badge bg">24h '+fm(vol24)+'</span>':'')+
+          (cat?'<span class="badge bbl">'+esc(cat)+'</span>':'')+
+          (isM?'<span class="badge bg">'+mkts.length+' options</span>':'')+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
 }
 function gsClick(idx){
   var ev=_gsItems[idx]; if(!ev)return;
   closeSearch();
+  goPage('markets');
   _evData.unshift(ev);
   openMktModal(0);
 }
-function gsTrader(addr){ if(!addr)return; closeSearch(); goPage('trader'); ge('tInput').value=addr; doTrader(); }
 
 /* ═════ EVENTS LOADER ═════ */
-function fetchEvents(cb){
+function fetchEvents(cb,force){
+  if(!force&&_eventsCache&&(Date.now()-_eventsCacheTs)<45000){ if(cb)cb(_eventsCache,null); return; }
   /* Try multiple endpoint variants — volume_24hr is not always a valid sort param */
   var urls=[
     GAMMA+'/events?active=true&closed=false&limit=100&order=volume&ascending=false',
@@ -607,7 +624,7 @@ function fetchEvents(cb){
     fj(urls[i])
       .then(function(d){
         var list=Array.isArray(d)?d:(d.events||d.data||[]);
-        if(list.length>0){ _allEvents=list; if(cb)cb(list,null); return; }
+        if(list.length>0){ _allEvents=list; _eventsCache=list; _eventsCacheTs=Date.now(); if(cb)cb(list,null); return; }
         tryUrl(i+1);
       })
       .catch(function(){ tryUrl(i+1); });
@@ -628,7 +645,7 @@ function doTrader(){
     ?Promise.resolve({addr:raw,meta:null})
     :fj(DATAv1+'/leaderboard?userName='+encodeURIComponent(raw)).then(function(d){
         var list=Array.isArray(d)?d:[];
-        if(list.length>0&&list[0].proxyWallet)return{addr:list[0].proxyWallet,meta:list[0],matches:list};
+        if(list.length>0&&list[0].proxyWallet)return{addr:list[0].proxyWallet,meta:list[0]};
         throw new Error('Username "'+raw+'" not found. Use the full 0x wallet address.');
       });
   rP.then(function(res){
@@ -647,7 +664,7 @@ function doTrader(){
       var pos=ok(rs[1]),cl=ok(rs[2]),act=ok(rs[3]),tr=ok(rs[4]);
       var lb=rs[5].status==='fulfilled'?rs[5].value:null;
       var lbD=res.meta||(Array.isArray(lb)?lb[0]:lb)||null;
-      buildProfile(res.addr,P,pos,tr,lbD,res.matches||[]);
+      buildProfile(res.addr,P,pos,tr,lbD);
       buildStats(pos,cl,tr);
       buildPositions(pos);
       buildClosed(cl);
@@ -659,7 +676,7 @@ function doTrader(){
   }).catch(function(e){ hide('tLd'); showErr('tErr',e.message); })
     .finally(function(){ ge('tBtn').disabled=false; ge('tBtn').textContent='Lookup'; });
 }
-function buildProfile(addr,P,pos,tr,lbD,matches){
+function buildProfile(addr,P,pos,tr,lbD){
   var name=(P&&(P.name||P.pseudonym))||(lbD&&lbD.userName)||short(addr);
   var init=(name||'?')[0].toUpperCase();
   var img=(P&&(P.profileImage||P.profileImageOptimized))||(lbD&&lbD.profileImage)||'';
@@ -687,9 +704,7 @@ function buildProfile(addr,P,pos,tr,lbD,matches){
       '<div class="vs"><div class="vs-l">All-Time Vol</div><div class="vs-v cp">'+fm(vol)+'</div></div>'+
       (pnl!==null?'<div class="vs"><div class="vs-l">All-Time P&L</div><div class="vs-v '+(pnl>=0?'cg':'cr')+'">'+fm(pnl,2)+'</div></div>':'')+
     '</div>';
-  if(matches&&matches.length>1){ ge('tProf').innerHTML+='<div style="margin-top:10px;font-size:11px;color:var(--sub)">Matched traders: '+matches.map(function(m){ var a=m.proxyWallet||''; var n=esc(m.userName||short(a)); return (!a||a===addr)?n:n+' <a href="#" onclick="ge(\'tInput\').value=\''+esc(a)+'\';doTrader();return false" style="color:var(--blue2);text-decoration:none">open</a>'; }).join(' · ')+'</div>'; }
 }
-
 function buildStats(pos,cl,tr){
   var cur=pos.reduce(function(s,p){return s+parseFloat(p.currentValue||0);},0);
   var upnl=pos.reduce(function(s,p){return s+parseFloat(p.cashPnl||0);},0);
@@ -794,7 +809,7 @@ function openActMkt(idx){
 }
 
 /* ═════ MARKETS ═════ */
-function loadMkts(filter){
+function loadMkts(filter,force){
   _mktsLoaded=true; hide('mErr'); show('mLd'); ge('mList').innerHTML='';
   setTxt('mLdTxt','Fetching top markets…');
   var sortParam=(filter==='new')?'createdAt':(filter==='volume'?'volume':'volume_24hr');
@@ -814,7 +829,7 @@ function loadMkts(filter){
     }
     setTxt('mLastUpdate','Updated '+new Date().toLocaleTimeString());
     renderMkts(filtered.slice(0,30));
-  });
+  },force);
 }
 function renderMkts(events){
   _evData=events;
@@ -856,10 +871,34 @@ function renderMkts(events){
 function openMktModal(idx){ var ev=_evData[idx]; if(!ev)return; ge('mktT').textContent=ev.title||'Market'; ge('mktB').innerHTML='<div class="ld on"><div class="spin"></div></div>'; ge('mktOv').classList.add('on'); buildMktModal(ev,null); }
 
 /* ═════ MARKET MODAL ═════ */
+function parseIdsAny(m){
+  var ids=parseIds(m||{});
+  if(ids.length>=2)return ids;
+  try{
+    var arr=JSON.parse((m&&m.clobTokenIds)||'[]');
+    if(Array.isArray(arr)&&arr.length>=2)return arr;
+  }catch(e){}
+  return ids;
+}
+function obFetch(id){
+  if(!id)return Promise.resolve(null);
+  if(_obCache[id])return Promise.resolve(_obCache[id]);
+  return fj(CLOB+'/book?token_id='+id).then(function(ob){ _obCache[id]=ob; return ob; }).catch(function(){ return null; });
+}
+function selectEventMarket(i){
+  var ev=_currentEventForModal; if(!ev)return;
+  var m=(ev.markets||[])[i]; if(!m)return;
+  var ids=parseIdsAny(m), el=ge('obC');
+  if(!el)return;
+  if(ids.length<2){ el.innerHTML='<div class="empty">YES/NO token IDs missing for this market</div>'; return; }
+  el.innerHTML='<div class="ld on" style="padding:10px 0"><div class="spin"></div></div>';
+  Promise.all([obFetch(ids[0]),obFetch(ids[1])]).then(function(obs){ el.innerHTML=buildOb(obs[0],obs[1]); });
+}
 function buildMktModal(ev,actData){
   var title=(ev&&(ev.title||ev.question))||(actData&&actData.title)||'Market';
   ge('mktT').textContent=title;
   var markets=ev?(ev.markets||[]):[];
+  _currentEventForModal=ev||null;
   var isM=markets.length>1; var m0=markets[0]||{};
   var vol=parseFloat(ev?(ev.volume||m0.volume||0):0);
   var liq=parseFloat(ev?(ev.liquidity||m0.liquidity||0):0);
@@ -884,13 +923,13 @@ function buildMktModal(ev,actData){
   }
   if(isM){
     html+='<div class="msec"><div class="msect">Outcomes ('+markets.length+')</div>'+
-      markets.map(function(m){ var mp=parseFloat(m.lastTradePrice||0); var mpw=(mp*100).toFixed(1);
-        return '<div class="outrow"><div class="outlbl">'+esc(trunc(m.groupItemTitle||m.question||'?',36))+'</div>'+
+      markets.map(function(m,i){ var mp=parseFloat(m.lastTradePrice||0); var mpw=(mp*100).toFixed(1);
+        return '<div class="outrow" onclick="selectEventMarket('+i+')" style="cursor:pointer"><div class="outlbl">'+esc(trunc(m.groupItemTitle||m.question||'?',36))+'</div>'+
           '<div class="outpct">'+(mp*100).toFixed(0)+'%</div>'+
           '<div class="outbar"><div class="outfill" style="width:'+mpw+'%;background:'+(mp>=.5?'var(--green)':'var(--blue)')+'"></div></div>'+
-          (m.volume?'<span style="font-size:10px;color:var(--muted);min-width:36px;text-align:right">'+fm(m.volume)+'</span>':'')+
+          (m.volume?'<span style="font-size:10px;color:var(--muted);min-width:36px;text-align:right">'+fm(m.volume)+'</span>':'')+'<span class="badge bg">Open book</span>'+
         '</div>';
-      }).join('')+'</div>';
+      }).join('')+'</div><div class="msec"><div class="msect">Selected Market Orderbook</div><div id="obC"><div class="empty">Select a market above</div></div></div>';
   } else if(price>0){
     var pw2=(price*100).toFixed(1); var pc2=price>=.5?'var(--green)':'var(--red)';
     html+='<div class="msec"><div class="msect">Probability</div>'+
@@ -899,27 +938,15 @@ function buildMktModal(ev,actData){
         '<div style="flex:1"><div class="mbar"><div class="mfill" style="width:'+pw2+'%;background:'+pc2+'"></div></div>'+
         '<div style="font-size:11px;color:var(--muted)">Yes probability</div></div></div></div>';
   }
-  var ids=parseIds(m0);
-  if(isM){
-    html+='<div class="msec"><div class="msect">Orderbooks — all outcomes</div><div id="obC"><div class="ld on" style="padding:10px 0"><div class="spin"></div></div></div></div>';
-    ge('mktB').innerHTML=html;
-    Promise.allSettled(markets.map(function(m){
-      var mIds=parseIds(m);
-      if(mIds.length<2)return Promise.resolve({name:m.groupItemTitle||m.question||'Outcome',html:'<div class="empty" style="padding:8px">Orderbook unavailable</div>'});
-      return Promise.all([getBook(mIds[0]),getBook(mIds[1])]).then(function(obs){ return {name:m.groupItemTitle||m.question||'Outcome',html:buildOb(obs[0],obs[1])}; });
-    })).then(function(rows){
-      var el2=ge('obC'); if(!el2)return;
-      el2.innerHTML=rows.map(function(r){ if(r.status!=='fulfilled')return ''; return '<div style="margin-bottom:10px"><div class="msect" style="margin-bottom:6px">'+esc(trunc(r.value.name,48))+'</div>'+r.value.html+'</div>'; }).join('')||'<div class="empty">No orderbooks available</div>';
-    });
-    return;
-  }
+  var ids=parseIdsAny(m0);
   if(ids.length>=2){
     html+='<div class="msec"><div class="msect">Orderbook — YES / NO</div><div id="obC"><div class="ld on" style="padding:10px 0"><div class="spin"></div></div></div></div>';
     ge('mktB').innerHTML=html;
-    Promise.all([getBook(ids[0]),getBook(ids[1])]).then(function(obs){ var el2=ge('obC'); if(el2)el2.innerHTML=buildOb(obs[0],obs[1]); });
+    Promise.all([fj(CLOB+'/book?token_id='+ids[0]).catch(function(){return null;}),fj(CLOB+'/book?token_id='+ids[1]).catch(function(){return null;})]).then(function(obs){ var el2=ge('obC'); if(el2)el2.innerHTML=buildOb(obs[0],obs[1]); });
     return;
   }
   ge('mktB').innerHTML=html||'<div class="empty">No data available</div>';
+  if(isM&&markets.length) setTimeout(function(){ selectEventMarket(0); },0);
 }
 function buildOb(yOb,nOb){
   function side(ob,lbl,isY){
@@ -1182,7 +1209,7 @@ document.addEventListener('DOMContentLoaded',function(){
   /* Markets */
   ge('mRefresh').addEventListener('click',function(){
     var active=document.querySelector('#mPills .pill.on');
-    loadMkts(active?active.dataset.f:'volume_24hr');
+    loadMkts(active?active.dataset.f:'volume_24hr',true);
   });
   document.querySelectorAll('#mPills .pill').forEach(function(p){
     p.addEventListener('click',function(){
@@ -1225,6 +1252,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   /* AUTO-LOAD on startup */
   loadMkts('volume_24hr');
+  goPage('markets');
   /* Background load for search */
   fetchEvents(function(list){ if(list.length)renderSearch(ge('gsIn').value.trim()); });
 });
